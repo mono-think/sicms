@@ -1,0 +1,4 @@
+app\Console
+用途：artisan commandsを作る
+
+多分使わない。

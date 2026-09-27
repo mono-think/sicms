@@ -1,0 +1,267 @@
+<?php
+/**
+ * [DB]contents_tテーブルのRepositoryクラス
+ *
+ * contents_tテーブルをメインとするコンテンツ情報の検索、登録、更新、削除処理
+ *
+ * @access public
+ * @author Seiji Ishikawa（メールアドレス）
+ * @copyright Webじゃ軒 All Rights Reserved
+ * @package repository
+ */
+namespace App\Repositories;
+
+use App\Models\Content;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
+use Carbon\Carbon;
+
+class ContentRepository implements ContentRepositoryInterface
+{
+
+    protected $content_obj;
+
+    protected $class_name;
+
+    /**
+     * コンストラクタ
+     *
+     * @access public
+     * @param Content $content
+     */
+    public function __construct(Content $content)
+    {
+        $this->content_obj = $content;
+        $this->class_name = get_class($this);
+        islog($this->class_name, __FUNCTION__);
+    }
+
+    /**
+     * [検索]コンテンツ情報コレクション取得
+     *
+     * 検索条件にマッチした全てのコンテンツ情報を取得
+     *
+     * @access private
+     * @param int $type
+     * @param string $search_tag
+     * @return \Illuminate\Database\Eloquent\Collection
+     * @see ContentRepository
+     * @throws QueryException
+     * @todo
+     */
+    private function getContentCollection($type, $search_tag = null)
+    {
+        islog($this->class_name, __FUNCTION__, 'm1');
+        dslog($this->class_name, __FUNCTION__, 'm1', [
+            'type' => $type,
+            'search_tag' => $search_tag
+        ]);
+
+        // コンテンツ一覧情報取得
+        islog($this->class_name, __FUNCTION__, 'm2');
+        $cb = new Carbon(); // 現在日時
+        $now_datetime = $cb->format('Y-m-d H:i:s');
+        DB::enableQueryLog();
+        $ret = DB::table('contents_t as c_t')->select('c_t.contents_mgr_no', 'c_t.contents_type', 'c_t.contents_title', 'c_t.contents_description', 'c_t.contents_text', 'c_t.contents_image_no', 'c_t.search_tag', 'c_t.updated_at', 'i_t.image_category', 'i_t.image_name', 'i_t.image_folder', 'i_t.image_type', 'i_t.image_alt', 'i_t.image_text')
+            ->leftjoin('image_t as i_t', function ($join) {
+            $join->where('i_t.image_category', getImageContentsCategory())
+                ->on('c_t.contents_image_no', 'i_t.image_no');
+        })
+            ->when(! is_null($type), function ($query) use ($type) {
+            return $query->where('c_t.contents_type', $type);
+        })
+            ->when(! is_null($search_tag), function ($query) use ($search_tag) {
+            return $query->where('c_t.search_tag', 'like', "%$search_tag%");
+        })
+            ->whereDate('c_t.release_start', '<=', $now_datetime)
+            ->whereDate('c_t.release_end', '>=', $now_datetime);
+
+        dslog($this->class_name, __FUNCTION__, 'm2', $ret);
+        islog($this->class_name, __FUNCTION__, 'm3');
+        return $ret;
+    }
+
+    /**
+     * [検索]コンテンツ一覧ページネーション取得
+     *
+     * 検索条件にマッチした全てのコンテンツ情報を取得
+     *
+     * @access public
+     * @param int $type
+     * @param string $search_tag
+     * @param int $limit
+     * @return \Illuminate\Database\Eloquent\Collection
+     * @see ContentRepository
+     * @throws QueryException
+     * @todo
+     */
+    public function getContentPagenationList($type, $search_tag = null, $limit = null)
+    {
+        islog($this->class_name, __FUNCTION__, 'm1');
+        dslog($this->class_name, __FUNCTION__, 'm1', [
+            'type' => $type,
+            'search_tag' => $search_tag,
+            'limit' => $limit
+        ]);
+
+        // コンテンツ一覧のコレクションのみ取得
+        $ret_collection = $this->getContentCollection($type, $search_tag);
+        // ページネーション込みで確定
+        $limit = ! is_null($limit) ? $limit : getDefaultPagenation(); // 取得件数確定
+        $ret = $ret_collection->orderBy('c_t.updated_at', 'desc')->paginate($limit);
+        dslog($this->class_name, __FUNCTION__, 'm22', DB::getQueryLog());
+
+        dslog($this->class_name, __FUNCTION__, 'm2', $ret);
+        islog($this->class_name, __FUNCTION__, 'm3');
+        return $ret;
+    }
+
+    /**
+     * [検索]コンテンツ一覧取得
+     *
+     * 検索条件にマッチした全てのコンテンツ情報を取得
+     *
+     * @access public
+     * @param int $type
+     * @param string $search_tag
+     * @param int $start
+     * @param int $limit
+     * @return \Illuminate\Database\Eloquent\Collection
+     * @see ContentRepository
+     * @throws QueryException
+     * @todo
+     */
+    public function getContentList($type, $search_tag = null, $start = 0, $limit = null)
+    {
+        islog($this->class_name, __FUNCTION__, 'm1');
+        dslog($this->class_name, __FUNCTION__, 'm1', [
+            'type' => $type,
+            'search_tag' => $search_tag,
+            'start' => $start,
+            'limit' => $limit
+        ]);
+
+        // コンテンツ一覧のコレクションのみ取得
+        $ret_collection = $this->getContentCollection($type, $search_tag);
+        if (is_null($limit)) {
+            // 全件取得で確定
+            $ret = $ret_collection->orderBy('c_t.updated_at', 'desc')->get();
+        } else {
+            // 指定開始位置から指定件数取得で確定
+            $ret = $ret_collection->orderBy('c_t.updated_at', 'desc')
+                ->offset($start)
+                ->limit($limit)
+                ->get();
+        }
+        dslog($this->class_name, __FUNCTION__, 'm22', DB::getQueryLog());
+
+        dslog($this->class_name, __FUNCTION__, 'm2', $ret);
+        islog($this->class_name, __FUNCTION__, 'm3');
+        return $ret;
+    }
+
+    /**
+     * [検索]コンテンツ情報取得
+     *
+     * コンテンツ番号によりコンテンツ情報を取得
+     *
+     * @access public
+     * @param int $type
+     * @param int $contents_no
+     * @return object
+     * @see ContentRepository
+     * @throws QueryException
+     * @todo
+     */
+    public function getContentData($type, $contents_no)
+    {
+        islog($this->class_name, __FUNCTION__, 'm1');
+        dslog($this->class_name, __FUNCTION__, 'm1', [
+            'type' => $type,
+            'content_no' => $contents_no
+        ]);
+
+        // コンテンツ情報取得
+        islog($this->class_name, __FUNCTION__, 'm2');
+        $contents_type = [
+            3,
+            4,
+            5
+        ]; // 判定様コンテンツ種別値
+        $cb = new Carbon(); // 現在日時
+        $now_datetime = $cb->format('Y-m-d H:i:s');
+        DB::enableQueryLog();
+        $ret = DB::table('contents_t as c_t')->select('c_t.contents_mgr_no', 'c_t.contents_type', 'c_t.contents_title', 'c_t.contents_description', 'c_t.contents_text', 'c_t.contents_image_no', 'c_t.search_tag', 'c_t.created_at', 'c_t.updated_at', 'i_t.image_no', 'i_t.image_category', 'i_t.image_name', 'i_t.image_folder', 'i_t.image_type', 'i_t.image_alt', 'i_t.image_text')
+            ->leftjoin('image_t as i_t', function ($join) {
+            $join->where('i_t.image_category', getImageContentsCategory())
+                ->on('c_t.contents_image_no', 'i_t.image_no');
+        })
+            ->when(in_array($type, $contents_type), function ($query) use ($type) { // 固定コンテンツ
+            return $query->where('c_t.contents_type', $type);
+        })
+            ->when(! in_array($type, $contents_type), function ($query) use ($type, $contents_no) { // 固定コンテンツ以外
+            return $query->where('c_t.contents_type', $type)
+                ->where('c_t.contents_mgr_no', $contents_no);
+        })
+            ->whereDate('c_t.release_start', '<=', $now_datetime)
+            ->whereDate('c_t.release_end', '>=', $now_datetime)
+            ->first();
+        dslog($this->class_name, __FUNCTION__, 'm22', DB::getQueryLog());
+
+        dslog($this->class_name, __FUNCTION__, 'm2', $ret);
+        islog($this->class_name, __FUNCTION__, 'm3');
+        return $ret;
+    }
+
+    /**
+     * [検索]コンテンツ新着情報の一覧取得
+     *
+     * 検索条件にマッチした全ての新着情報を取得
+     *
+     * @access public
+     * @param int $type
+     * @param int $limit
+     * @return \Illuminate\Database\Eloquent\Collection
+     * @see ContentRepository
+     * @throws QueryException
+     * @todo
+     */
+    public function getContentNewUpdateList($type, $limit)
+    {
+        islog($this->class_name, __FUNCTION__, 'm1');
+        dslog($this->class_name, __FUNCTION__, 'm1', [
+            'type' => $type,
+            'limit' => $limit
+        ]);
+
+        // コンテンツ新着情報取得
+        islog($this->class_name, __FUNCTION__, 'm2');
+        $cb = new Carbon(); // 現在日時
+        $now_datetime = $cb->format('Y-m-d H:i:s');
+        DB::enableQueryLog();
+        $ret = DB::table('contents_t as c_t')->select(DB::raw('"contents" as page'), 'c_t.contents_type as param1', 'c_t.contents_mgr_no as param2', DB::raw('"" as param3'), 'c_t.contents_title as title', DB::raw('"" as title_text'), 'c_t.updated_at as update_date', 'c_t.contents_image_no as image_no', 'i_t.image_category as image_category', 'i_t.image_name as image_name', 'i_t.image_folder as image_folder', 'i_t.image_type as image_type', 'i_t.image_alt as image_alt', 'i_t.image_text as image_text');
+        // route('front_content.show')のURL（修正時注意）
+        $ret = $ret->selectRaw('concat(?,"/content/",c_t.contents_type,"/detail?n=", c_t.contents_mgr_no) as url', [
+            url('/')
+        ]); // URL生成
+        $ret = $ret->selectRaw('case when i_t.image_name is not null then concat(?,"/", i_t.image_folder, "/", i_t.image_name, "_500.", i_t.image_type) else ? end as img_file', [ // 画像パス生成(imgのみ)
+            getImagePublicFullpath(),
+            getNoimagePath()
+        ]);
+        $ret = $ret->leftjoin('image_t as i_t', function ($join) {
+            $join->where('i_t.image_category', getImageContentsCategory())
+                ->on('c_t.contents_image_no', 'i_t.image_no');
+        })
+            ->where('c_t.contents_type', $type)
+            ->whereDate('c_t.release_start', '<=', $now_datetime)
+            ->whereDate('c_t.release_end', '>=', $now_datetime)
+            ->orderBy('update_date', 'desc')
+            ->take($limit)
+            ->get();
+        dslog($this->class_name, __FUNCTION__, 'm22', DB::getQueryLog());
+
+        dslog($this->class_name, __FUNCTION__, 'm2', $ret);
+        islog($this->class_name, __FUNCTION__, 'm3');
+        return $ret;
+    }
+}
